@@ -905,6 +905,13 @@ HLE_FORCE("_ZN2nn3hid22GetVibrationDeviceInfoEPNS0_19VibrationDeviceInfoERKNS0_2
 HLE_FORCE("_ZN2nn3hid24IsVibrationDeviceMountedERKNS0_21VibrationDeviceHandleE", "vibration: device mounted when the channel has an output", unsigned, h_hid_VibMounted, const uint32_t *h) {
     return h && vib_targets(*h);
 }
+// SDK 22 names the same question IsOunceVibrationDeviceMounted (Switch 2, "Ounce"). The public function (sdk+0x6cd610) calls
+// hid::detail::IsOunceVibrationDeviceMounted (sdk+0x6c9390), which calls hid::detail::PermitVibration. That opens the hid service.
+// sm refuses it (ResultNotRegistered, 0xe15) and SDK 22 aborts at sdk+0x6c8e54. Ocarina of Time asks on every note, with rumble on or off
+// (main+0x329541c). The host's output is the linear resonant actuator GetVibrationDeviceInfo already reports, so the answer matches IsVibrationDeviceMounted.
+HLE_FORCE("_ZN2nn3hid29IsOunceVibrationDeviceMountedERKNS0_21VibrationDeviceHandleE", "vibration (Switch 2): device mounted when the channel has an output", unsigned, h_hid_VibMountedOunce, const uint32_t *h) {
+    return h && vib_targets(*h);
+}
 HLE_FORCE("_ZN2nn3hid23GetActualVibrationValueEPNS0_14VibrationValueERKNS0_21VibrationDeviceHandleE", "vibration: last accepted channel value", void, h_hid_VibActual, dm_vibration *v, const uint32_t *h) {
     uint32_t targets = h ? vib_targets(*h) : 0;
     *v = targets ? dm_haptics_actual(__builtin_ctz(targets), *h >> 16 & 1) : (dm_vibration){0, 160, 0, 320};
