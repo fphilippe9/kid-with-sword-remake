@@ -134,3 +134,4 @@ From an empty save: at about 45 s `A` (title), `A` (New Game), then the movie. F
 - [Image atomics on a 32-bit colour texture](../../../docs/reference/shaders.md#image-atomics-on-a-32-bit-colour-texture)
 - [A host's own store in a fragment shader moves its depth test](../../../docs/reference/frame-rate.md#a-hosts-own-store-in-a-fragment-shader-moves-its-depth-test)
 - [Dead-code removal dropped a coordinate of a multi-output instruction](../../../docs/reference/shaders.md#dead-code-removal-dropped-a-coordinate-of-a-multi-output-instruction)
+- [Switch 2 vibration mount (`IsOunceVibrationDeviceMounted`)](../../../docs/reference/services.md#switch-2-vibration-mount-isouncevibrationdevicemounted): an ocarina note aborts with Result `0xe15` at `sdk+0x6c8e54` (`CRASH sig=6`). The microphone fault at the Door of Time is a different call.
