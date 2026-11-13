@@ -50,6 +50,9 @@ shader_note	0400486024DEC000 shaders
 # agl wraps its depth clears in render conditions, as on Donkey Kong Bananza and Splatoon Raiders: in Kokiri Forest the main opaque pass tests EQUAL against a copy of the prepass depth
 # that a conditional clear (skipped on the console) wiped first, so no lit geometry landed and the full-screen sky showed through everywhere (a white scene)
 render_cond	on
+# Terrain tiles (260x260 R32F height, RGBA8 blend and hole maps, RG8 normals) are written by the CPU into one CPU_CACHED pool, in GPU layout, and published with a mapped-range flush or with no flush as slots are reused (hle_nvn.c ft_add / nvn_ft_poll). Without both, Hyrule Field's slopes are flat grey planes
+tex_flush_upload	on
+tex_dirty_upload	on
 
 # The RAM swap is upstream's DM_GUEST_FILE (on by itself on iOS when the memory pool does not fit the room to the limit); its memory pools stay anonymous (hle_svc.c dm_guest_pool_anon)
 # Raw global memory: compressible (render-target storage), shader code and GPU no-access pools are kept out of the pool table, which made every pool resident (nvn_mtl.m mtl_pool_noraw)
