@@ -258,7 +258,8 @@ void mtl_reg_image(int id, const tex_t *t, const view_t *v);   // RegisterImage 
 // textures written by WriteTexels (recorded by serial): the replay layer treats them like packaged textures, uploaded from guest memory and re-uploaded on dirty pages
 void mtl_tex_cpu_written(const tex_t *t);
 int mtl_tex_gpu_owned(uint64_t serial);                                  // its host texture is a render target or shader-writable: GPU content, never re-uploaded from guest memory
-int mtl_tex_storage_gpu_owned(const tex_t *t);                           // the GPU wrote its storage and the CPU has not rewritten it since (nvn_ft_poll: not re-uploaded from guest memory)
+enum { MTL_REWRITE_UPLOADED, MTL_REWRITE_GPU, MTL_REWRITE_GPU_NOW };     // mtl_tex_cpu_rewritten: uploaded from its storage / left to the GPU for good / until the CPU rewrites it
+int mtl_tex_cpu_rewritten(const tex_t *t);                               // nvn_ft_poll: the CPU wrote a registered texture's pages after its first use (MTL_REWRITE_*)
 // hle_nvn.c: a texture tex_flush_upload / tex_dirty_upload registered and has not resolved yet; GPU copies written into the destination texture's storage as well (see there)
 int nvn_ft_tracked(uint64_t serial);
 int nvn_tex_mirror_b2t(const tex_t *t, unsigned level, unsigned layer0, const NVNcopyRegion *r, const uint8_t *src, size_t row, size_t img);

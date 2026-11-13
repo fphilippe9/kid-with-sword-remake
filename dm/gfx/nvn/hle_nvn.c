@@ -438,16 +438,16 @@ int nvn_ft_tracked(uint64_t serial) {   // registered and not resolved yet: its 
 // Later writes (tex_dirty_upload): a texture first resolved before the CPU filled it stays a GPU-only texture, and the first-use check above never runs for it again.
 // Once per submission, when guest memory has changed since the last look, the registered textures whose pages were written since registration become CPU-written
 // (tex_mtl_ in nvn_mtl.m then drops the GPU-only texture and uploads it). Tears of the Kingdom fills its 5120x5120 BC4 roughness atlas from the CPU after first binding it,
-// as tiles stream in. A texture whose storage the GPU wrote after the CPU's write (mtl_tex_storage_gpu_owned: the storage spans tex_cpu_content asks) leaves the list without an upload,
-// which would replace the GPU's content; one the GPU never wrote, or wrote before the CPU's write, is uploaded. The host texture's usage cannot tell: a texture made without a CPU fill
-// has render-target use from the start (tex_desc), and with the usage as the test every such rewrite was dropped (Ocarina of Time's terrain tiles)
+// as tiles stream in; Ocarina of Time rewrites its terrain tiles' maps as tile slots are reused. An uploaded texture, or one left to the GPU for good (a cubemap, a render target, a small
+// lookup: mtl_tex_cpu_rewritten), leaves the list. One whose storage the GPU wrote after the CPU's write (MTL_REWRITE_GPU_NOW) stays on it with a new stamp, so the CPU's next rewrite is
+// asked about again. Its pages are stamped and protected before the question, so a write during or after it is seen by a later poll
 // Each poll looks at no more than FT_POLL_BYTES of registered textures, going on where the last one stopped; any guest write starts another pass over the whole list.
 // Checking every texture at every submission cost TOTK 0.4 ms of submit CPU per frame on the Mac; this way a texture is picked up a few submissions later at most
 enum { FT_POLL_BYTES = 128 << 20 };
 void nvn_ft_poll(void) {
     if (!DM_GAME_TEX_DIRTY_UPLOAD) return;
     static uint64_t gen; static size_t cur, left;
-    static tex_t *hit; static size_t chit; size_t nhit = 0;
+    static struct { tex_t t; size_t at; int how; } *hit; static size_t chit; size_t nhit = 0;
     uint64_t now = nvn_dirty_now(), scanned = 0;
     pthread_mutex_lock(&g_ft_mu);
     if (now != gen) { gen = now; left = g_nft; }   // guest memory changed: every entry gets one more look
@@ -456,20 +456,35 @@ void nvn_ft_poll(void) {
         scanned += g_ft[cur].size; left--;
         if (nvn_dirty_since_span(g_ft[cur].span, g_ft[cur].mem, g_ft[cur].size, g_ft[cur].stamp)) {
             if (nhit == chit && !(hit = realloc(hit, (chit = chit ? 2 * chit : 64) * sizeof *hit))) die("nvn_ft_poll allocation failed");
-            hit[nhit++] = g_ft[cur].t; g_ft[cur] = g_ft[--g_nft];
-        } else cur++;
+            hit[nhit].t = g_ft[cur].t; hit[nhit++].at = cur;
+        }
+        cur++;
     }
     pthread_mutex_unlock(&g_ft_mu);
-    for (size_t i = 0; i < nhit; i++) {   // outside g_ft_mu: the ownership check takes the storage spans' lock
-        static uint64_t up, kept;
-        if (!mtl_tex_storage_gpu_owned(&hit[i])) { mtl_tex_cpu_written(&hit[i]); up++;
-            if (up <= 4) LOG("[nvn] registered texture written by the CPU after its first use: uploaded from its storage (ser=%llu %ux%ux%u format %#x levels %u, %llu bytes; %llu so far)",
-                             (unsigned long long)hit[i].serial, hit[i].d.width, hit[i].d.height, hit[i].d.depth, hit[i].d.format, hit[i].d.levels, (unsigned long long)hit[i].L.size, (unsigned long long)up);
-            continue; }
-        kept++;
-        if (kept <= 4 || kept % 100 == 0) LOG("[nvn] registered texture written by the CPU after its first use, kept as the GPU's (the GPU wrote its storage after the CPU): ser=%llu %ux%ux%u format %#x levels %u, %llu bytes (%llu kept, %llu uploaded so far)",
-                                              (unsigned long long)hit[i].serial, hit[i].d.width, hit[i].d.height, hit[i].d.depth, hit[i].d.format, hit[i].d.levels, (unsigned long long)hit[i].L.size, (unsigned long long)kept, (unsigned long long)up);
+    if (!nhit) return;
+    uint64_t st = nvn_dirty_now();
+    for (size_t i = 0; i < nhit; i++) if (hit[i].t.mem && hit[i].t.L.size) nvn_dirty_protect(hit[i].t.mem, hit[i].t.L.size);
+    static uint64_t up, kept;
+    for (size_t i = 0; i < nhit; i++) {   // outside g_ft_mu: the question takes the serial table's and the storage spans' locks
+        const tex_t *t = &hit[i].t;
+        hit[i].how = mtl_tex_cpu_rewritten(t);
+        if (hit[i].how == MTL_REWRITE_UPLOADED && ++up <= 4)
+            LOG("[nvn] registered texture written by the CPU after its first use: uploaded from its storage (ser=%llu %ux%ux%u format %#x levels %u, %llu bytes; %llu so far)",
+                (unsigned long long)t->serial, t->d.width, t->d.height, t->d.depth, t->d.format, t->d.levels, (unsigned long long)t->L.size, (unsigned long long)up);
+        if (hit[i].how == MTL_REWRITE_GPU_NOW && ++kept <= 4)
+            LOG("[nvn] registered texture written by the CPU after its first use, left to the GPU until the CPU rewrites it (the GPU wrote its storage after the CPU): ser=%llu %ux%ux%u format %#x levels %u, %llu bytes (%llu so far, %llu uploaded)",
+                (unsigned long long)t->serial, t->d.width, t->d.height, t->d.depth, t->d.format, t->d.levels, (unsigned long long)t->L.size, (unsigned long long)kept, (unsigned long long)up);
     }
+    pthread_mutex_lock(&g_ft_mu);
+    for (size_t i = 0; i < nhit; i++) {   // where the scan saw it, unless an entry was removed meanwhile (a removal moves the last entry into its place)
+        size_t j = hit[i].at;
+        if (j >= g_nft || g_ft[j].t.serial != hit[i].t.serial)
+            for (j = 0; j < g_nft && g_ft[j].t.serial != hit[i].t.serial; j++) {}
+        if (j == g_nft) continue;
+        if (hit[i].how == MTL_REWRITE_GPU_NOW) g_ft[j].stamp = st;
+        else g_ft[j] = g_ft[--g_nft];
+    }
+    pthread_mutex_unlock(&g_ft_mu);
 }
 static void ft_flush(const uint8_t *a, uint64_t n) {
     if (!DM_GAME_TEX_FLUSH_UPLOAD || !a || !n) return;
@@ -1700,8 +1715,8 @@ static void tsummary(uint64_t frame) {
             LOG("[nvn] thread policy: main thread real-time computation %.2f ms / period %.2f ms, real-time policy %s, current priority %d (base %d, policy %d); %u worker threads QoS %#x; present QoS %#x", g_rt_comp_ms, g_rt_period_ms, rt_live ? "in effect" : "not in effect", okx ? xi.pth_curpri : -1, okx ? xi.pth_priority : -1, okx ? xi.pth_policy : -1, wn, wq, mtl_present_qos()); }
         py = cy; pk = ck; pw = cw; }
       pi = ci; pc = cc; pd = dr_; pf = frame; }
-    uint64_t up, re, es = mtl_pkg_edge_skips(), fa, pr; mtl_pkg_stats(&up, &re); nvn_dirty_stats(&fa, &pr);
-    LOG("[nvn] packaged textures: first uploads %llu, re-uploads on pool content change %llu, writes beside a texture only (not re-uploaded) %llu; write-protection faults %llu, pages unprotected before host writes %llu; missed %llu (cumulative); CPU-written textures alive %u", up, re, es, fa, pr, mtl_pkg_miss(), mtl_cpu_tex_count());
+    uint64_t up, re, es = mtl_pkg_edge_skips(), fa, pr, op, oc; mtl_pkg_stats(&up, &re); nvn_dirty_stats(&fa, &pr); nvn_dirty_open_stats(&op, &oc);
+    LOG("[nvn] packaged textures: first uploads %llu, re-uploads on pool content change %llu, writes beside a texture only (not re-uploaded) %llu; write-protection faults %llu, pages unprotected before host writes %llu, opened for pool buffers %llu (changed while open %llu); missed %llu (cumulative); CPU-written textures alive %u", up, re, es, fa, pr, op, oc, mtl_pkg_miss(), mtl_cpu_tex_count());
     memset(g_tn, 0, sizeof g_tn);
 }
 // DM_SLOWFRAME=1 (test switch, read over the log port on a real device): per-frame timings are first stored in a ring of the last 16 frames; dropped frames are judged 8 frames late (GPU / on-screen present times are back by then),

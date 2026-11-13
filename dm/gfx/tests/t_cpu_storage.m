@@ -119,16 +119,25 @@ int main(void) {
         nvn_dirty_remove_range(f.mem);
         teardown(&f);
 
-        setup(&f, 7030, CACHED, NVN_FORMAT_RGBA8, 0);   // nvn_ft_poll's question (mtl_tex_storage_gpu_owned)
+        setup(&f, 7030, CACHED, NVN_FORMAT_RGBA8, 0);   // nvn_ft_poll's question (mtl_tex_cpu_rewritten)
         nvn_dirty_add_range(f.mem, POOL);
         large = texture_at(&f, 7031, 0x40000, LARGE, NVN_FORMAT_RGBA8, 0);
-        CHECK("storage the GPU never wrote is the CPU's", !mtl_tex_storage_gpu_owned(&large));
-        mtl_tex_gpu_written(&large);
-        CHECK("storage the GPU wrote is the GPU's", mtl_tex_storage_gpu_owned(&large));
         dm_guest_write_prepare(large.mem, large.L.size); fill(&large, large.mem, 40);
-        CHECK("and the CPU's again once it rewrites it", !mtl_tex_storage_gpu_owned(&large));
+        CHECK("a rewrite of storage the GPU never wrote is uploaded", mtl_tex_cpu_rewritten(&large) == MTL_REWRITE_UPLOADED && tex_cpu_written(large.serial));
+        mtl_tex_gpu_written(&large);
+        mtl_sub_begin(); cpu_unc_drop(); finish();
+        CHECK("and the GPU's next write there makes it a GPU texture again", !tex_cpu_written(large.serial));
+        dm_guest_write_prepare(large.mem, large.L.size); fill(&large, large.mem, 80);
+        CHECK("and the CPU's next rewrite is uploaded", mtl_tex_cpu_rewritten(&large) == MTL_REWRITE_UPLOADED && tex_cpu_written(large.serial));
         mtl_tex_release(&large);
         nvn_dirty_remove_range(f.mem);
+        teardown(&f);
+
+        setup(&f, 7034, CACHED, NVN_FORMAT_RGBA8, NVN_TEXTURE_FLAGS_COMPRESSIBLE);   // a render target: not taken from storage, and once it has a host texture the usage test keeps it the GPU's
+        fill(&f.t, f.mem, 40);
+        CHECK("a compressible texture is not taken from storage", !tex_storage_ok(&f.t, 1));
+        (void)resolve(&f.t);
+        CHECK("a resolved render-target texture is left to the GPU", mtl_tex_cpu_rewritten(&f.t) == MTL_REWRITE_GPU && !tex_cpu_written(f.t.serial));
         teardown(&f);
 
         setup(&f, 7022, NVN_MEMORY_POOL_FLAGS_CPU_NO_ACCESS | NVN_MEMORY_POOL_FLAGS_GPU_CACHED, NVN_FORMAT_RGBA8, 0);
