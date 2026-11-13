@@ -52,7 +52,7 @@ Set these as environment switches (`--env-file`, a front end's per-game environm
 |---|---|---|
 | `DM_TEX_RELEASE` | `2` | Gives back the guest copy of a texture's storage once the GPU has it (`CPU_NO_ACCESS` pools, and still-protected pages of CPU-visible uploads): ~2.3 GB less footprint. This branch. |
 | `DM_TEX_REL_DONOR` | default `1` | A texture registered again over released storage is a GPU copy of the one released there (Link's hat embroidery was black without it). This branch. |
-| `DM_NVN_GPUW_RANGE` | default `1` | GPU writes are tracked by storage range, so the CPU-written terrain heightmaps keep their heights (no holes at the pond). This branch. |
+| (spans, no switch) | always | GPU writes are storage spans: a CPU rewrite of that storage is seen, and a sub-page sliver does not make a neighbouring texture the GPU's, so the terrain heightmaps keep their heights. |
 | `DM_TEX_LAZY` | `2` | A pool walk makes no host texture for IDs in `CPU_NO_ACCESS` pools (render targets are made when attached or copied). Not `1`: textures only sampled through the bindless pool then read the dummy (black rocks, flat fog and water). Follow-up. |
 | `DM_GMEM_KEEP` | `new` | When the raw global memory pool table overflows, the partial tier keeps its newest pools (the current area's foliage data). Not needed once the table grows with the pools (#1360). Follow-up. |
 | `DM_NVN_MESH_SKIP` | `none` | Draws every task / mesh draw (the profile in some trees sets `indirect` as a stopgap). Safe with the guards: |

@@ -4,7 +4,7 @@ The Switch 2 base dump reaches its title screen on the Mac. VideoToolbox decodes
 
 ## Profile
 
-SDK 22.2.8, NVN API 231.40, with Nintendo's sead, agl and gsys. The three loaded modules are `main`, `subsdk0` (NintendoSDK_movie), and `sdk`. The NPDM declares 48 MiB of system resources. Startup requests a 6.20 GiB heap, which fits in the profile's 12 GiB reservation with the stack and alias regions. The registered build is the supplied base dump (`v0`).
+SDK 22.2.8, NVN API 231.40, with Nintendo's sead, agl and gsys. The three loaded modules are `main`, `subsdk0` (NintendoSDK_movie), and `sdk`. The NPDM declares 48 MiB of system resources. Startup requests a 6.20 GiB heap, which fits in the profile's 12 GiB reservation with the stack and alias regions. The registered build is the supplied base dump (`v0`). The profile sets `tex_flush_upload` and `tex_dirty_upload`: the terrain's 260×260 height, blend and hole maps are written by the CPU into pool storage, and without the uploads Hyrule Field's slopes are flat grey planes.
 
 ## Mac dry run
 
@@ -127,6 +127,8 @@ From an empty save: at about 45 s `A` (title), `A` (New Game), then the movie. F
 - [Pool shaders taken as depth readers](../../../docs/reference/rendering.md#pool-shaders-taken-as-depth-readers): about 80 extra passes a frame, and half the frames over budget.
 - [A pipeline archive on an external drive is read into memory](../../../docs/reference/memory.md#a-pipeline-archive-on-an-external-drive-is-read-into-memory): 3.5 GB of swapped memory, now mapped.
 - [A texture in a sparse pool came out CPU-written at its first use](../../../docs/reference/memory.md#a-texture-in-a-sparse-pool-came-out-cpu-written-at-its-first-use): found by the unit test, on this profile's `tex_dirty_upload`.
+- [Textures made for GPU use kept from their CPU rewrites](../../../docs/reference/nvn-objects.md#textures-made-for-gpu-use-kept-from-their-cpu-rewrites): the terrain tiles' height, blend and hole maps, rewritten as slots are reused. The poll uploads them from storage; GPU-drawn normal tiles stay the GPU's.
+- [A span's sliver inside a texture](../../../docs/reference/nvn-objects.md#a-spans-sliver-inside-a-texture): a neighbouring GPU-written span of less than a page was enough to zero a 260×260 height or hole map, so Hyrule Field tiles sat as flat grey planes.
 - [`EventFd` needs no network](../../../docs/reference/services.md#eventfd-needs-no-network)
 - [No virtual audio input devices (SDK 22)](../../../docs/reference/audio.md#no-virtual-audio-input-devices-sdk-22)
 - [`nn::ndve`'s movie enhancement file](../../../docs/reference/shaders.md#nnndves-movie-enhancement-file)
